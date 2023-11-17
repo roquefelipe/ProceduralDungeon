@@ -30,6 +30,7 @@
 #include "GameFramework/GameState.h"
 #include "GameFramework/Pawn.h"
 #include "ProceduralDungeonTypes.h"
+#include "ProceduralDungeonUtils.h"
 #include "ProceduralDungeonLog.h"
 #include "Room.h"
 #include "RoomData.h"
@@ -80,7 +81,7 @@ void ARoomLevel::BeginPlay()
 		LogError(FString::Printf(TEXT("RoomLevel's Data does not match RoomData's Level [Data \"%s\" | Level \"%s\"]"), *Room->GetRoomData()->GetName(), *GetName()));
 	}
 
-	if (URoom::OccludeDynamicActors())
+	if (Dungeon::OccludeDynamicActors())
 	{
 		// Create trigger box to track dynamic actors inside the room
 		RoomTrigger = NewObject<UBoxComponent>(this, UBoxComponent::StaticClass(), FName("Room Trigger"));
@@ -131,24 +132,40 @@ void ARoomLevel::Tick(float DeltaTime)
 	Super::Tick(DeltaTime);
 
 #if WITH_EDITOR
-	// TODO: Place the debug draw in an editor module of the plugin
-	if (URoom::DrawDebug() && IsValid(Data))
+	// TODO: Place the debug draw in an editor module of the plugin?
+	if (Dungeon::DrawDebug() && IsValid(Data))
 	{
-		FTransform RoomTransform = (Room != nullptr) ? Room->GetTransform() : FTransform::Identity;
+		const FTransform& RoomTransform = (Room != nullptr) ? Room->GetTransform() : FTransform::Identity;
+		const bool bIsRoomLocked = Room != nullptr && Room->IsLocked();
 		UpdateBounds();
 
+		// Cache world
+		const UWorld* World = GetWorld();
+
+		// TODO: is it still needed now?
 		// Pivot
-		DrawDebugSphere(GetWorld(), DungeonTransform.TransformPosition(RoomTransform.GetLocation()), 100.0f, 4, FColor::Magenta);
+		if(Dungeon::ShowRoomOrigin())
+			DrawDebugSphere(World, DungeonTransform.TransformPosition(RoomTransform.GetLocation()), 100.0f, 4, FColor::Magenta);
 
 		// Room bounds
-		DrawDebugBox(GetWorld(), DungeonTransform.TransformPosition(Bounds.Center), Bounds.Extent, DungeonTransform.GetRotation(), IsPlayerInside() ? FColor::Green : FColor::Red);
+		DrawDebugBox(World, DungeonTransform.TransformPosition(Bounds.Center), Bounds.Extent, DungeonTransform.GetRotation(), IsPlayerInside() ? FColor::Green : FColor::Red);
+
+		if (bIsRoomLocked)
+		{
+			FBox Box = Bounds.GetBox().TransformBy(DungeonTransform);
+
+			DrawDebugLine(World, Box.Min, Box.Max, FColor::Red);
+			DrawDebugLine(World, FVector(Box.Min.X, Box.Min.Y, Box.Max.Z), FVector(Box.Max.X, Box.Max.Y, Box.Min.Z), FColor::Red);
+			DrawDebugLine(World, FVector(Box.Min.X, Box.Max.Y, Box.Max.Z), FVector(Box.Max.X, Box.Min.Y, Box.Min.Z), FColor::Red);
+			DrawDebugLine(World, FVector(Box.Min.X, Box.Max.Y, Box.Min.Z), FVector(Box.Max.X, Box.Min.Y, Box.Max.Z), FColor::Red);
+		}
 
 		// Doors
-		FVector DoorSize = URoom::DoorSize();
 		for (int i = 0; i < Data->GetNbDoor(); i++)
 		{
-			bool isConnected = Room == nullptr || Room->IsConnected(i);
-			ADoor::DrawDebug(GetWorld(), Data->Doors[i].Position, Data->Doors[i].Direction, RoomTransform * DungeonTransform, true, isConnected, Data->IsDoorValid(i));
+			const bool bIsConnected = Room == nullptr || Room->IsConnected(i);
+			const bool bIsDoorValid = Data->IsDoorValid(i);
+			FDoorDef::DrawDebug(World, bIsDoorValid ? FColor::Blue : FColor::Orange, Data->Doors[i], RoomTransform * DungeonTransform, true, bIsConnected);
 		}
 	}
 #endif
@@ -215,7 +232,7 @@ void ARoomLevel::UpdateBounds()
 
 void ARoomLevel::SetActorsVisible(bool Visible)
 {
-	if (!URoom::OcclusionCulling())
+	if (!Dungeon::OcclusionCulling())
 	{
 		// TODO? Force visibility? (it will only be a QoL for editor use)
 		return;
@@ -251,5 +268,6 @@ void ARoomLevel::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEv
 {
 	Super::PostEditChangeProperty(PropertyChangedEvent);
 	UpdateBounds();
+	OnPropertiesChanged.Broadcast(this);
 }
 #endif

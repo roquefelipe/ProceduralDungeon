@@ -25,6 +25,7 @@
 #include "TriggerType.h"
 #include "TimerManager.h"
 #include "ProceduralDungeonTypes.h"
+#include "Engine/World.h"
 
 // Sets default values for this component's properties
 UTriggerType::UTriggerType()
@@ -51,9 +52,9 @@ void UTriggerType::BeginPlay()
 	}
 }
 
-void UTriggerType::OnTriggerEnter(UPrimitiveComponent * OverlappedComponent, AActor * OtherActor, UPrimitiveComponent * OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult & SweepResult)
+void UTriggerType::OnTriggerEnter(UPrimitiveComponent* OverlappedComponent, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult)
 {
-	if (ActorType == nullptr || (OtherActor!=nullptr && OtherActor->IsA(ActorType)))
+	if (ActorType == nullptr || (OtherActor != nullptr && OtherActor->IsA(ActorType)))
 	{
 		if (!ActorList.Contains(OtherActor))
 		{
@@ -75,7 +76,7 @@ void UTriggerType::OnTriggerEnter(UPrimitiveComponent * OverlappedComponent, AAc
 	}
 }
 
-void UTriggerType::OnTriggerExit(UPrimitiveComponent * OverlappedComponent, AActor * OtherActor, UPrimitiveComponent * OtherComp, int32 OtherBodyIndex)
+void UTriggerType::OnTriggerExit(UPrimitiveComponent* OverlappedComponent, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex)
 {
 	if (ActorType == nullptr || (OtherActor != nullptr && OtherActor->IsA(ActorType)))
 	{

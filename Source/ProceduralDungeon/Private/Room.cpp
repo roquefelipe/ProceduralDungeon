@@ -25,20 +25,41 @@
 #include "Room.h"
 #include "Door.h"
 #include "Engine/World.h"
+#include "Net/UnrealNetwork.h" // DOREPLIFETIME
 #include "RoomData.h"
 #include "RoomLevel.h"
-#include "ProceduralDungeonSettings.h"
+#include "ProceduralDungeonUtils.h"
 #include "ProceduralDungeonLog.h"
 #include "DungeonGenerator.h"
+#include "RoomCustomData.h"
 
 URoom::URoom()
 	: Super()
-	, Instance(nullptr)
-	, RoomData(nullptr)
 	, Connections()
-	, GeneratorOwner(nullptr)
-	, Id(-1)
 {
+}
+
+void URoom::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
+{
+	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+	DOREPLIFETIME_CONDITION(URoom, RoomData, COND_InitialOnly);
+	DOREPLIFETIME_CONDITION(URoom, Position, COND_InitialOnly);
+	DOREPLIFETIME_CONDITION(URoom, Direction, COND_InitialOnly);
+	DOREPLIFETIME_CONDITION(URoom, Connections, COND_InitialOnly);
+	DOREPLIFETIME_CONDITION(URoom, GeneratorOwner, COND_InitialOnly);
+	DOREPLIFETIME_CONDITION(URoom, Id, COND_InitialOnly);
+	DOREPLIFETIME(URoom, bIsLocked);
+	DOREPLIFETIME(URoom, CustomData);
+}
+
+bool URoom::ReplicateSubobjects(UActorChannel* Channel, FOutBunch* Bunch, FReplicationFlags* RepFlags)
+{
+	bool bWroteSomething = Super::ReplicateSubobjects(Channel, Bunch, RepFlags);
+	for (const auto& Pair : CustomData)
+	{
+		bWroteSomething |= Pair.Data->ReplicateSubobject(Channel, Bunch, RepFlags);
+	}
+	return bWroteSomething;
 }
 
 void URoom::Init(URoomData* Data, ADungeonGenerator* Generator, int32 RoomId)
@@ -61,11 +82,9 @@ void URoom::Init(URoomData* Data, ADungeonGenerator* Generator, int32 RoomId)
 	{
 		LogError("No RoomData provided.");
 	}
-
-	SetVisible(false);
 }
 
-bool URoom::IsConnected(int Index)
+bool URoom::IsConnected(int Index) const
 {
 	check(Index >= 0 && Index < Connections.Num());
 	return Connections[Index].OtherRoom != nullptr;
@@ -78,13 +97,13 @@ void URoom::SetConnection(int Index, URoom* Room, int OtherIndex)
 	Connections[Index].OtherDoorIndex = OtherIndex;
 }
 
-TWeakObjectPtr<URoom> URoom::GetConnection(int Index)
+TWeakObjectPtr<URoom> URoom::GetConnection(int Index) const
 {
 	check(Index >= 0 && Index < Connections.Num());
 	return Connections[Index].OtherRoom;
 }
 
-int URoom::GetFirstEmptyConnection()
+int URoom::GetFirstEmptyConnection() const
 {
 	for (int i = 0; i < Connections.Num(); ++i)
 	{
@@ -109,15 +128,16 @@ void URoom::Instantiate(UWorld* World)
 		FVector offset(0, 0, 0);
 		FQuat rotation = FQuat::Identity;
 		FString nameSuffix = FString::FromInt(Id);
-		if (GeneratorOwner != nullptr)
+		if (GeneratorOwner.IsValid())
 		{
 			offset = GeneratorOwner->GetDungeonOffset();
 			rotation = GeneratorOwner->GetDungeonRotation();
-			nameSuffix = FString::FromInt(GeneratorOwner->GetUniqueId()) + TEXT("_") + nameSuffix;
+
+			nameSuffix = FString::Printf(TEXT("%d_%d_%s"), GeneratorOwner->GetUniqueId(), GeneratorOwner->GetGeneration(), *nameSuffix);
 		}
 
-		FVector FinalLocation = rotation.RotateVector(URoom::Unit() * FVector(Position)) + offset;
-		FQuat FinalRotation = rotation * FRotator(0, -90 * (int)Direction, 0).Quaternion();
+		FVector FinalLocation = rotation.RotateVector(Dungeon::RoomUnit() * FVector(Position)) + offset;
+		FQuat FinalRotation = rotation * ToQuaternion(Direction);
 		Instance = UProceduralLevelStreaming::Load(World, RoomData, nameSuffix, FinalLocation, FinalRotation.Rotator());
 
 		if (!IsValid(Instance))
@@ -126,7 +146,7 @@ void URoom::Instantiate(UWorld* World)
 			return;
 		}
 
-		LogInfo(FString::Printf(TEXT("Load room Instance: %s"), *Instance->GetWorldAssetPackageName()));
+		LogInfo(FString::Printf(TEXT("[%s][R:%s][I:%s] Load room Instance: %s"), *GetAuthorityName(), *GetName(), *GetNameSafe(Instance), *Instance->GetWorldAssetPackageName()));
 		Instance->OnLevelLoaded.AddDynamic(this, &URoom::OnInstanceLoaded);
 	}
 	else
@@ -139,7 +159,7 @@ void URoom::Destroy(UWorld* World)
 {
 	if (IsValid(Instance))
 	{
-		UE_LOG(LogProceduralDungeon, Log, TEXT("Unload room Instance: %s"), nullptr != Instance ? *Instance->GetWorldAssetPackageName() : TEXT("Null"));
+		UE_LOG(LogProceduralDungeon, Log, TEXT("[%s][R:%s][I:%s] Unload room Instance: %s"), *GetAuthorityName(), *GetName(), *GetNameSafe(Instance), *Instance->GetWorldAssetPackageName());
 
 		ARoomLevel* Script = GetLevelScript();
 		if (IsValid(Script))
@@ -147,8 +167,12 @@ void URoom::Destroy(UWorld* World)
 			Script->Room = nullptr;
 			Script->Destroy();
 		}
-
+		check(World);
 		UProceduralLevelStreaming::Unload(World, Instance);
+	}
+	else
+	{
+		UE_LOG(LogProceduralDungeon, Log, TEXT("[%s][R:%s] No room instance to unload"), *GetAuthorityName(), *GetName());
 	}
 }
 
@@ -165,6 +189,19 @@ void URoom::OnInstanceLoaded()
 	}
 
 	Script->Init(this);
+
+	UE_LOG(LogProceduralDungeon, Log, TEXT("[%s][R:%s][I:%s] Room loaded: %s"), *GetAuthorityName(), *GetName(), *GetNameSafe(Instance), *Instance->GetWorldAssetPackageName());
+}
+
+void URoom::Lock(bool lock)
+{
+	bIsLocked = lock;
+	LogInfo(FString::Printf(TEXT("[%s] Room '%s' setting IsLocked: %s"), *GetAuthorityName(), *GetNameSafe(this), bIsLocked ? TEXT("True") : TEXT("False")));
+}
+
+void URoom::OnRep_IsLocked()
+{
+	LogInfo(FString::Printf(TEXT("[%s] Room '%s' IsLocked Replicated: %s"), *GetAuthorityName(), *GetNameSafe(this), bIsLocked ? TEXT("True") : TEXT("False")));
 }
 
 ARoomLevel* URoom::GetLevelScript() const
@@ -195,7 +232,7 @@ bool URoom::IsInstanceInitialized() const
 EDoorDirection URoom::GetDoorWorldOrientation(int DoorIndex)
 {
 	check(DoorIndex >= 0 && DoorIndex < RoomData->Doors.Num());
-	return Add(RoomData->Doors[DoorIndex].Direction, Direction);
+	return RoomData->Doors[DoorIndex].Direction + Direction;
 }
 
 FIntVector URoom::GetDoorWorldPosition(int DoorIndex)
@@ -236,65 +273,80 @@ int URoom::GetOtherDoorIndex(int DoorIndex)
 	return Connections[DoorIndex].OtherDoorIndex;
 }
 
-FIntVector URoom::WorldToRoom(FIntVector WorldPos)
+FIntVector URoom::WorldToRoom(const FIntVector& WorldPos) const
 {
-	return Rotate(WorldPos - Position, Sub(EDoorDirection::North, Direction));
+	return Rotate(WorldPos - Position, -Direction);
 }
 
-FIntVector URoom::RoomToWorld(FIntVector RoomPos)
+FIntVector URoom::RoomToWorld(const FIntVector& RoomPos) const
 {
 	return Rotate(RoomPos, Direction) + Position;
 }
 
-EDoorDirection URoom::WorldToRoom(EDoorDirection WorldRot)
+EDoorDirection URoom::WorldToRoom(const EDoorDirection& WorldRot) const
 {
-	return Sub(WorldRot, Direction);
+	return WorldRot - Direction;
 }
 
-EDoorDirection URoom::RoomToWorld(EDoorDirection RoomRot)
+EDoorDirection URoom::RoomToWorld(const EDoorDirection& RoomRot) const
 {
-	return Add(RoomRot, Direction);
+	return RoomRot + Direction;
+}
+
+FBoxMinAndMax URoom::WorldToRoom(const FBoxMinAndMax& WorldBox) const
+{
+	return Rotate(WorldBox - Position, -Direction);
+}
+
+FBoxMinAndMax URoom::RoomToWorld(const FBoxMinAndMax& RoomBox) const
+{
+	return Rotate(RoomBox, Direction) + Position;
 }
 
 void URoom::SetRotationFromDoor(int DoorIndex, EDoorDirection WorldRot)
 {
 	check(DoorIndex >= 0 && DoorIndex < RoomData->Doors.Num());
-	Direction = Add(Sub(WorldRot, RoomData->Doors[DoorIndex].Direction), EDoorDirection::South);
+	Direction = WorldRot - RoomData->Doors[DoorIndex].Direction;
 }
 
 void URoom::SetPositionFromDoor(int DoorIndex, FIntVector WorldPos)
 {
 	check(DoorIndex >= 0 && DoorIndex < RoomData->Doors.Num());
-	Position = WorldPos - RoomToWorld(RoomData->Doors[DoorIndex].Position);
+	Position = WorldPos - Rotate(RoomData->Doors[DoorIndex].Position, Direction);
 }
 
 void URoom::SetPositionAndRotationFromDoor(int DoorIndex, FIntVector WorldPos, EDoorDirection WorldRot)
 {
 	check(DoorIndex >= 0 && DoorIndex < RoomData->Doors.Num());
-	Direction = Sub(WorldRot, RoomData->Doors[DoorIndex].Direction);
-	Position = WorldPos - RoomToWorld(RoomData->Doors[DoorIndex].Position);
+	Direction = WorldRot - RoomData->Doors[DoorIndex].Direction;
+	Position = WorldPos - Rotate(RoomData->Doors[DoorIndex].Position, Direction);
 }
 
 bool URoom::IsOccupied(FIntVector Cell)
 {
 	FIntVector local = WorldToRoom(Cell);
-	return local.X >= 0 && local.X < RoomData->Size.X
-		&& local.Y >= 0 && local.Y < RoomData->Size.Y
-		&& local.Z >= 0 && local.Z < RoomData->Size.Z;
+	FBoxMinAndMax Bounds = RoomData->GetIntBounds();
+	return local.X >= Bounds.Min.X && local.X < Bounds.Max.X
+		&& local.Y >= Bounds.Min.Y && local.Y < Bounds.Max.Y
+		&& local.Z >= Bounds.Min.Z && local.Z < Bounds.Max.Z;
 }
 
 void URoom::TryConnectToExistingDoors(TArray<URoom*>& RoomList)
 {
 	for (int i = 0; i < RoomData->GetNbDoor(); ++i)
 	{
+		if (IsConnected(i))
+			continue;
+
 		EDoorDirection dir = GetDoorWorldOrientation(i);
-		FIntVector pos = GetDoorWorldPosition(i) + URoom::GetDirection(dir);
+		FIntVector pos = GetDoorWorldPosition(i) + ToIntVector(dir);
 		URoom* otherRoom = GetRoomAt(pos, RoomList);
 
 		if (IsValid(otherRoom))
 		{
-			int j = otherRoom->GetDoorIndexAt(pos, URoom::Opposite(dir));
-			if (j >= 0) // -1 if no door
+			int j = otherRoom->GetDoorIndexAt(pos, ~dir);
+			if (j >= 0 // -1 if no door
+				&& FDoorDef::AreCompatible(RoomData->Doors[i], otherRoom->RoomData->Doors[j]))
 			{
 				Connect(*this, i, *otherRoom, j);
 			}
@@ -314,11 +366,17 @@ FBoxCenterAndExtent URoom::GetLocalBounds() const
 	return RoomData->GetBounds();
 }
 
+FBoxMinAndMax URoom::GetIntBounds() const
+{
+	check(IsValid(RoomData));
+	return RoomToWorld(RoomData->GetIntBounds());
+}
+
 FTransform URoom::GetTransform() const
 {
 	FTransform Transform;
-	Transform.SetLocation(FVector(Position) * URoom::Unit());
-	Transform.SetRotation(GetRotation(Direction));
+	Transform.SetLocation(FVector(Position) * Dungeon::RoomUnit());
+	Transform.SetRotation(ToQuaternion(Direction));
 	return Transform;
 }
 
@@ -329,13 +387,13 @@ void URoom::SetVisible(bool Visible)
 
 	bIsVisible = Visible;
 
-	if (URoom::UseLegacyOcclusion())
+	if (Dungeon::UseLegacyOcclusion())
 	{
 		ARoomLevel* LevelScript = GetLevelScript();
-		if(IsValid(LevelScript))
+		if (IsValid(LevelScript))
 			LevelScript->SetActorsVisible(Visible);
 	}
-	else if(IsValid(Instance))
+	else if (IsValid(Instance))
 	{
 		// TODO: make the level be visible again, I don't know why it is not visible although
 		// the Visible and Loaded of StreamingLevel are correctly set to true 
@@ -354,39 +412,65 @@ void URoom::SetPlayerInside(bool PlayerInside)
 	bPlayerInside = PlayerInside;
 }
 
-FIntVector Max(const FIntVector& A, const FIntVector& B)
+bool URoom::CreateCustomData(const TSubclassOf<URoomCustomData>& DataType)
 {
-	return FIntVector(FMath::Max(A.X, B.X), FMath::Max(A.Y, B.Y), FMath::Max(A.Z, B.Z));
-}
+	if (DataType == nullptr)
+		return false;
 
-FIntVector Min(const FIntVector& A, const FIntVector& B)
-{
-	return FIntVector(FMath::Min(A.X, B.X), FMath::Min(A.Y, B.Y), FMath::Min(A.Z, B.Z));
-}
+	// No duplicate allowed
+	if (HasCustomData(DataType))
+		return false;
 
-// AABB Overlapping
-bool URoom::Overlap(URoom& A, URoom& B)
-{
-	FIntVector A_firstPoint = A.Position;
-	FIntVector B_firstPoint = B.Position;
-	FIntVector A_secondPoint = A.RoomToWorld(A.RoomData->Size - FIntVector(1, 1, 1));
-	FIntVector B_secondPoint = B.RoomToWorld(B.RoomData->Size - FIntVector(1, 1, 1));
-
-	FIntVector A_min = Min(A_firstPoint, A_secondPoint);
-	FIntVector A_max = Max(A_firstPoint, A_secondPoint);
-	FIntVector B_min = Min(B_firstPoint, B_secondPoint);
-	FIntVector B_max = Max(B_firstPoint, B_secondPoint);
-
-	if (A_min.X > B_max.X) return false;
-	if (A_max.X < B_min.X) return false;
-	if (A_min.Y > B_max.Y) return false;
-	if (A_max.Y < B_min.Y) return false;
-	if (A_min.Z > B_max.Z) return false;
-	if (A_max.Z < B_min.Z) return false;
+	CustomData.Add({DataType, NewObject<URoomCustomData>(GetOuter(), DataType)});
 	return true;
 }
 
-bool URoom::Overlap(URoom& Room, TArray<URoom*>& RoomList)
+bool URoom::GetCustomData_BP(TSubclassOf<URoomCustomData> DataType, URoomCustomData*& Data)
+{
+	return GetCustomData(DataType, Data);
+}
+
+bool URoom::HasCustomData_BP(const TSubclassOf<URoomCustomData>& DataType)
+{
+	return HasCustomData(DataType);
+}
+
+bool URoom::GetCustomData(const TSubclassOf<URoomCustomData>& DataType, URoomCustomData*& Data) const
+{
+	const FCustomDataPair* Pair = GetDataPair(DataType);
+	if (!Pair) // Not found
+		return false;
+
+	URoomCustomData* Datum = Pair->Data;
+	if(!IsValid(Datum))
+		return false;
+
+	if (!Datum->IsA(DataType))
+		return false;
+
+	Data = Datum;
+	return true;
+}
+
+bool URoom::HasCustomData(const TSubclassOf<URoomCustomData>& DataType) const
+{
+	return GetDataPair(DataType) != nullptr;
+}
+
+const FCustomDataPair* URoom::GetDataPair(const TSubclassOf<URoomCustomData>& DataType) const
+{
+	return CustomData.FindByPredicate([&DataType](const FCustomDataPair& Pair) { return Pair.DataClass == DataType; });
+}
+
+// AABB Overlapping
+bool URoom::Overlap(const URoom& A, const URoom& B)
+{
+	FBoxMinAndMax BoxA = A.GetIntBounds();
+	FBoxMinAndMax BoxB = B.GetIntBounds();
+	return FBoxMinAndMax::Overlap(BoxA, BoxB);
+}
+
+bool URoom::Overlap(const URoom& Room, const TArray<URoom*>& RoomList)
 {
 	bool overlap = false;
 	for (int i = 0; i < RoomList.Num() && !overlap; i++)
@@ -399,154 +483,20 @@ bool URoom::Overlap(URoom& Room, TArray<URoom*>& RoomList)
 	return overlap;
 }
 
-EDoorDirection URoom::Add(EDoorDirection A, EDoorDirection B)
-{
-	int8 D = (int8)A + (int8)B;
-	while (D > 2) D -= 4;
-	while (D <= -2) D += 4;
-	return (EDoorDirection)D;
-}
-
-EDoorDirection URoom::Sub(EDoorDirection A, EDoorDirection B)
-{
-	int8 D = (int8)A - (int8)B;
-	while (D > 2) D -= 4;
-	while (D <= -2) D += 4;
-	return (EDoorDirection)D;
-}
-
-EDoorDirection URoom::Opposite(EDoorDirection O)
-{
-	return Add(O, EDoorDirection::South);
-}
-
-FIntVector URoom::GetDirection(EDoorDirection O)
-{
-	FIntVector Dir = FIntVector::ZeroValue;
-	switch (O)
-	{
-	case EDoorDirection::North:
-		Dir.X = 1;
-		break;
-	case EDoorDirection::East:
-		Dir.Y = 1;
-		break;
-	case EDoorDirection::West:
-		Dir.Y = -1;
-		break;
-	case EDoorDirection::South:
-		Dir.X = -1;
-		break;
-	}
-	return Dir;
-}
-
-FQuat URoom::GetRotation(EDoorDirection O)
-{
-	return FRotator(0.0f, -90.0f * (int8)O, 0.0f).Quaternion();
-}
-
-FIntVector URoom::Rotate(FIntVector Pos, EDoorDirection Rot)
-{
-	FIntVector NewPos = Pos;
-	switch (Rot)
-	{
-	case EDoorDirection::North:
-		NewPos = Pos;
-		break;
-	case EDoorDirection::West:
-		NewPos.Y = -Pos.X;
-		NewPos.X = Pos.Y;
-		break;
-	case EDoorDirection::East:
-		NewPos.Y = Pos.X;
-		NewPos.X = -Pos.Y;
-		break;
-	case EDoorDirection::South:
-		NewPos.Y = -Pos.Y;
-		NewPos.X = -Pos.X;
-		break;
-	}
-	return NewPos;
-}
-
-FVector URoom::GetRealDoorPosition(FIntVector DoorCell, EDoorDirection DoorRot, bool includeOffset)
-{
-	return URoom::Unit() * (FVector(DoorCell) + 0.5f * FVector(URoom::GetDirection(DoorRot)) + FVector(0, 0, includeOffset ? URoom::DoorOffset() : 0));
-}
-
 void URoom::Connect(URoom& RoomA, int DoorA, URoom& RoomB, int DoorB)
 {
 	RoomA.SetConnection(DoorA, &RoomB, DoorB);
 	RoomB.SetConnection(DoorB, &RoomA, DoorA);
 }
 
-URoom* URoom::GetRoomAt(FIntVector RoomCell, TArray<URoom*>& RoomList)
+URoom* URoom::GetRoomAt(FIntVector RoomCell, const TArray<URoom*>& RoomList)
 {
-	for (auto it = RoomList.begin(); it != RoomList.end(); ++it)
+	for (URoom* Room : RoomList)
 	{
-		if (IsValid(*it) && (*it)->IsOccupied(RoomCell))
+		if (IsValid(Room) && Room->IsOccupied(RoomCell))
 		{
-			return *it;
+			return Room;
 		}
 	}
 	return nullptr;
-}
-
-// =================== Plugin's Settings ========================
-// TODO: move them in UProceduralDungeonSettings instead?
-
-FVector URoom::Unit()
-{
-	UProceduralDungeonSettings* Settings = GetMutableDefault<UProceduralDungeonSettings>();
-	return Settings->RoomUnit;
-}
-
-FVector URoom::DoorSize()
-{
-	UProceduralDungeonSettings* Settings = GetMutableDefault<UProceduralDungeonSettings>();
-	return Settings->DoorSize;
-}
-
-float URoom::DoorOffset()
-{
-	UProceduralDungeonSettings* Settings = GetMutableDefault<UProceduralDungeonSettings>();
-	return Settings->DoorOffset;
-}
-
-bool URoom::OcclusionCulling()
-{
-	UProceduralDungeonSettings* Settings = GetMutableDefault<UProceduralDungeonSettings>();
-	return Settings->OcclusionCulling;
-}
-
-bool URoom::UseLegacyOcclusion()
-{
-	//UProceduralDungeonSettings* Settings = GetMutableDefault<UProceduralDungeonSettings>();
-	//return Settings->LegacyOcclusion;
-	return true;
-}
-
-uint32 URoom::OcclusionDistance()
-{
-	UProceduralDungeonSettings* Settings = GetMutableDefault<UProceduralDungeonSettings>();
-	return Settings->OcclusionDistance;
-}
-
-bool URoom::OccludeDynamicActors()
-{
-	UProceduralDungeonSettings* Settings = GetMutableDefault<UProceduralDungeonSettings>();
-	return Settings->OcclusionCulling && Settings->OccludeDynamicActors;
-}
-
-bool URoom::DrawDebug()
-{
-	UProceduralDungeonSettings* Settings = GetMutableDefault<UProceduralDungeonSettings>();
-	return Settings->DrawDebug;
-}
-
-bool URoom::CanLoop()
-{
-	UProceduralDungeonSettings* Settings = GetMutableDefault<UProceduralDungeonSettings>();
-	return Settings->CanLoop;
 }

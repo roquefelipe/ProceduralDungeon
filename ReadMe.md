@@ -1,39 +1,68 @@
 # Procedural Dungeon Plugin
 
+[![Plugin version number](https://img.shields.io/github/v/release/BenPyton/ProceduralDungeon?label=Version)](https://github.com/BenPyton/ProceduralDungeon/releases/latest)
+[![Unreal Engine Supported Versions](https://img.shields.io/badge/Unreal_Engine-4.27_%7C_5.0_%7C_5.1_%7C_5.2_%7C_5.3-9455CE?logo=unrealengine)
+](https://github.com/BenPyton/ProceduralDungeon/releases)
+[![License](https://img.shields.io/github/license/BenPyton/ProceduralDungeon?label=License&color=blue)](LICENSE)
+![Download count](https://img.shields.io/github/downloads/BenPyton/ProceduralDungeon/total?label=Downloads)
 [![Actively Maintained](https://img.shields.io/badge/Maintenance%20Level-Actively%20Maintained-green.svg)](https://gist.github.com/cheerfulstoic/d107229326a01ff0f333a1d3476e068d)
 
-Author : Benoît PELLETIER
-
 ## Overview
-This is an Unreal Engine 4 plugin to create procedural dungeons by arranging a set of room like "The Binding of Isaac" or "Rogue Legacy" but in 3D.
 
-This procedural dungeon uses hand-created rooms that are Unreal levels.
+This is an Unreal Engine plugin to create procedural dungeons by arranging procedurally a set of room like "The Binding of Isaac" or "Rogue Legacy" but in 3D.
 
-You define your own rules to generate the dungeon.
+This procedural dungeon plugin uses hand-created rooms that are Unreal levels.\
+You define your own rules in blueprints or C++ to generate the dungeon via an actor placed in a master world.
 
-If you want more details about how it works and how to use it, please read the [wiki](https://github.com/BenPyton/ProceduralDungeon/wiki).
+If you have any suggestion/bug or you want to contribute, feel free to create an issue ticket or do a pull request.
 
-If you have any suggestion/bug or you want to contribute, don't hesitate to add an issue or do a pull request.
+### Example
 
-### Demo in video:
-[![](http://img.youtube.com/vi/DmyNEd0YtDE/0.jpg)](http://www.youtube.com/watch?v=DmyNEd0YtDE "Procedural Dungeon Demo")<br>
+Some hand-made rooms defined with bounds and doors:\
+<img src="https://github.com/BenPyton/ProceduralDungeon/wiki/Images/ProceduralDungeonDemo_RoomSpawn.gif" alt="Animated GIF" width="125"/>
+<img src="https://github.com/BenPyton/ProceduralDungeon/wiki/Images/ProceduralDungeonDemo_RoomA.gif" alt="Animated GIF" width="125"/>
+<img src="https://github.com/BenPyton/ProceduralDungeon/wiki/Images/ProceduralDungeonDemo_RoomB.gif" alt="Animated GIF" width="125"/>
+<img src="https://github.com/BenPyton/ProceduralDungeon/wiki/Images/ProceduralDungeonDemo_RoomC.gif" alt="Animated GIF" width="125"/>
+<img src="https://github.com/BenPyton/ProceduralDungeon/wiki/Images/ProceduralDungeonDemo_RoomD.gif" alt="Animated GIF" width="125"/>
+<img src="https://github.com/BenPyton/ProceduralDungeon/wiki/Images/ProceduralDungeonDemo_RoomExit.gif" alt="Animated GIF" width="125"/>
+
+Some very simple generation rules:
+- A special room (red) used to spawn the player.
+- Then 10 rooms chosen randomly in a list (blue, green, yellow, cyan).
+- Then a special room (purple) used as an end goal for the player.
+- Finally 10 other rooms chosen randomly.
+
+Possible results:\
+<img src="https://github.com/BenPyton/ProceduralDungeon/wiki/Images/ProceduralDungeonResult.gif" alt="Animated GIF" width="400"/>
+<img src="https://github.com/BenPyton/ProceduralDungeon/wiki/Images/ProceduralDungeonResult2.gif" alt="Animated GIF" width="400"/>
+
+[Demo Video on Youtube](http://www.youtube.com/watch?v=DmyNEd0YtDE "Procedural Dungeon Demo")<br>
+
+You can find an example project [here](https://github.com/BenPyton/DungeonExample) too.
+
+## Features
+
+- Hand created rooms, allowing full control by the level designers.
+- Generation rules defined in blueprint, allowing flexible and powerful procedural generation.
+- Doors can be put on any Z height, allowing dungeons to be in 3D (but can do flat dungeons as well).
+- Defining different door types, allowing more complex dungeons.
+- Rooms and doors can be locked/unlocked. 
+- Optional occlusion culling, allowing only relevant rooms rendered (and thus better performances).
+- A new editor mode to ease the creation and edition of the rooms.
+- Custom data in rooms, allowing gameplay specific code in room instances.
+- Working well with navmeshes and multiplayers.
+
+## How to use it
+
+Go to the [Getting Started](https://github.com/BenPyton/ProceduralDungeon/wiki/Getting-Started) page to begin to work with the plugin.
+
+If you want more details about how it works internally, you can read the [wiki](https://github.com/BenPyton/ProceduralDungeon/wiki/Home).
 
 ## Installation
-Get the [latest release](https://github.com/BenPyton/ProceduralDungeon/releases) compatible with your Unreal version.
 
-**For blueprint only projects**
-- Before plugin version 1.2.1:\
-Upgrade your project to a C++ project and follow the instruction for C++ project below, or you wont be able to package your game.\
-(To do that, download Visual Studio 2019 and create a new C++ class from the Unreal Editor)
+Install it like any other Unreal Engine plugin.
 
-- Since plugin version 1.2.1:\
-You have to extract the plugin inside your Unreal engine `Plugins` folder.\
-For instance: `C:\Program Files\Epic Games\UE_4.26\Engine\Plugins`
-
-**For C++ projects**\
-Since the plugin version 1.2.1, you can install the plugin in the engine like for blueprint projects.\
-You can also extract the plugin in the `Plugins` folder of your project.\
-For instance: `D:\PathToYourProject\Plugins`
+If you have any trouble with installation, read the [Installation](https://github.com/BenPyton/ProceduralDungeon/wiki/Installation) page of the wiki.
 
 ## FAQ
 
@@ -98,11 +127,10 @@ You can also disable the occlusion culling from the [plugin's settings](https://
 <summary><b>Is there a seed?</b></summary>
 
 Yes, there is a seed for the dungeon generation.\
-This is what is sent from server to clients in multiplayer. The clients also generate the dungeon on their side from the same seed. So, the actors and meshes inside the room levels are not linked over the network and then not replicated in multiplayer. So this is why I suggest you the spawner and ID system above.\
 I made a parameter in the `DungeonGenerator` actor to have different types of seed:
-- You can have a fixed seed you can set in the actor which will be always used (useful for testing and debugging purpose).
+- You can have a fixed seed you can set in the actor which will be always used (useful for testing and debugging purpose, or to set manually the seed from the game).
 - You can have an incrementing seed, using the fixed seed for the first generation, then adding a value to it at each generation (useful for demonstration purpose).
-- You can have a random seed generated for each generation (for released game mostly).
+- You can have a random seed generated for each generation (for released game mostly, or to test quickly a lot of dungeon generations).
 
 </details>
 
@@ -122,3 +150,17 @@ Of course, you can. To do that sort of thing, you should create a child blueprin
 Then for example, in your [`ChooseNextRoomData`](https://github.com/BenPyton/ProceduralDungeon/wiki/Choose-Next-Room-Data) function you can choose a room depending on its difficulty level compared to the difficulty level of the previous room.
 
 </details>
+
+## License
+
+This plugin is under [MIT license](LICENSE).  
+This means you are free to use this plugin for personal/free/commercial projects, you are also allowed to modify the source code and/or redistribute it.  
+The only condition is to add the copyright notice and a copy of the license with your project and/or any redistribution of the source code, modified or not.
+
+## Sponsor me
+
+ If you like my plugin, please consider supporting me:
+
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/M4M3NW2JV)
+[![Donate using Liberapay](https://liberapay.com/assets/widgets/donate.svg)](https://liberapay.com/BenPyton/donate)
+[![Donate using Paypal](https://www.paypalobjects.com/en_US/i/btn/btn_donate_LG.gif)](https://www.paypal.com/donate/?hosted_button_id=9VWP66JU5DZXN)

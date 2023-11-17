@@ -1,7 +1,7 @@
 /*
  * MIT License
  *
- * Copyright (c) 2019-2021 Benoit Pelletier
+ * Copyright (c) 2019-2021, 2023 Benoit Pelletier
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -27,7 +27,22 @@
 #include "CoreMinimal.h"
 #include "Engine/DataAsset.h"
 #include "ProceduralDungeonTypes.h"
+#include "Runtime/Launch/Resources/Version.h"
 #include "RoomData.generated.h"
+
+#if ENGINE_MAJOR_VERSION < 5 || (ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION < 3)
+#define USE_LEGACY_DATA_VALIDATION 1
+#else
+#define USE_LEGACY_DATA_VALIDATION 0
+#endif
+
+class URoom;
+class UDungeonGraph;
+
+#if WITH_EDITOR
+class URoomData;
+DECLARE_MULTICAST_DELEGATE_OneParam(FRoomDataEditorEvent, URoomData*)
+#endif
 
 UCLASS()
 class PROCEDURALDUNGEON_API URoomData : public UPrimaryDataAsset
@@ -36,32 +51,52 @@ class PROCEDURALDUNGEON_API URoomData : public UPrimaryDataAsset
 
 	friend class UProceduralLevelStreaming;
 
-private:
-	UPROPERTY(EditAnywhere, Category = "Level")
-	TSoftObjectPtr<UWorld> Level;
+public:
+	UPROPERTY(EditInstanceOnly, Category = "Level")
+	TSoftObjectPtr<UWorld> Level {nullptr};
 
 public:
-	UPROPERTY(EditAnywhere, Category = "Door")
-	bool RandomDoor;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Doors")
+	bool RandomDoor {true};
 
-	UPROPERTY(EditAnywhere, Category = "Doors", meta = (TitleProperty = "EdName"))
-	TArray<FDoorDef> Doors;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Doors")
+	TArray<FDoorDef> Doors {FDoorDef()};
 
-	UPROPERTY(EditAnywhere, Category = "Room", meta = (ClampMin = 1))
-	FIntVector Size;
+	UPROPERTY(EditAnywhere, Category = "Room")
+	FIntVector FirstPoint {0};
+
+	UPROPERTY(EditAnywhere, Category = "Room")
+	FIntVector SecondPoint {1};
+
+	UPROPERTY(EditDefaultsOnly, Category = "Room")
+	TSet<TSubclassOf<class URoomCustomData>> CustomData;
 
 public:
 	URoomData();
 
+	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Room Data", meta = (DisplayName = "Door Count", CompactNodeTitle = "Door Count"))
 	int GetNbDoor() const { return Doors.Num(); }
 
-	FBoxCenterAndExtent GetBounds(FTransform Transform = FTransform::Identity) const;
+	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Room Data")
+	bool HasCompatibleDoor(const FDoorDef& DoorData) const;
+
+	UFUNCTION(BlueprintNativeEvent, Category = "Room Data")
+	void InitializeRoom(URoom* Room, UDungeonGraph* Dungeon) const;
+
+	FIntVector GetSize() const;
+	class FBoxCenterAndExtent GetBounds(FTransform Transform = FTransform::Identity) const;
+	FBoxMinAndMax GetIntBounds() const;
 
 #if WITH_EDITOR
 	bool IsDoorValid(int DoorIndex) const;
+
+#if USE_LEGACY_DATA_VALIDATION
 	virtual EDataValidationResult IsDataValid(TArray<FText>& ValidationErrors) override;
-	virtual void PostEditChangeChainProperty(struct FPropertyChangedChainEvent& PropertyChangedEvent) override;
+#else
+	virtual EDataValidationResult IsDataValid(class FDataValidationContext& Context) const override;
 #endif
 
-	virtual void PostLoad();
+	FRoomDataEditorEvent OnPropertiesChanged;
+	virtual void PostEditChangeProperty(struct FPropertyChangedEvent& PropertyChangedEvent) override;
+#endif
 };

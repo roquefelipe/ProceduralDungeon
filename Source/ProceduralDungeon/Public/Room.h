@@ -1,7 +1,7 @@
 /*
  * MIT License
  *
- * Copyright (c) 2019-2022 Benoit Pelletier
+ * Copyright (c) 2019-2023 Benoit Pelletier
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -24,7 +24,7 @@
 
 #pragma once
 
-#include "CoreMinimal.h"
+#include "ReplicableObject.h"
 #include "ProceduralLevelStreaming.h"
 #include "GameFramework/Actor.h"
 #include "ProceduralDungeonTypes.h"
@@ -35,6 +35,7 @@ class ADungeonGenerator;
 class ARoomLevel;
 class URoomData;
 class ADoor;
+class URoomCustomData;
 
 USTRUCT()
 struct FRoomConnection
@@ -42,59 +43,109 @@ struct FRoomConnection
 	GENERATED_BODY()
 
 	UPROPERTY()
-	TWeakObjectPtr<URoom> OtherRoom = nullptr;
-	int OtherDoorIndex = -1;
-	ADoor* DoorInstance = nullptr;
+	TWeakObjectPtr<URoom> OtherRoom {nullptr};
+	int OtherDoorIndex {-1};
+	ADoor* DoorInstance {nullptr};
 };
 
-UCLASS()
-class PROCEDURALDUNGEON_API URoom : public UObject
+USTRUCT()
+struct FCustomDataPair
+{
+	GENERATED_BODY()
+
+	UPROPERTY()
+	UClass* DataClass {nullptr};
+	UPROPERTY()
+	URoomCustomData* Data {nullptr};
+};
+
+UCLASS(BlueprintType)
+class PROCEDURALDUNGEON_API URoom : public UReplicableObject
 {
 	GENERATED_BODY()
 
 public:
+	// TODO: Make them private
 	UPROPERTY()
-	UProceduralLevelStreaming* Instance;
-	UPROPERTY()
-	FIntVector Position;
-	EDoorDirection Direction;
+	UProceduralLevelStreaming* Instance {nullptr};
+	UPROPERTY(Replicated)
+	FIntVector Position {0};
+	UPROPERTY(Replicated)
+	EDoorDirection Direction {EDoorDirection::NbDirection};
 
 	URoom();
 
-	URoomData* GetRoomData() { return RoomData; }
-	ADungeonGenerator* Generator() const { return GeneratorOwner; }
+	const URoomData* GetRoomData() const { return RoomData; }
+	const ADungeonGenerator* Generator() const { return GeneratorOwner.Get(); }
 	void SetPlayerInside(bool PlayerInside);
 	void SetVisible(bool Visible);
 
+	UFUNCTION(BlueprintPure, Category = "Room")
 	FORCEINLINE bool IsPlayerInside() const { return bPlayerInside; }
+
+	UFUNCTION(BlueprintPure, Category = "Room", meta = (CompactNodeTitle = "Is Visible"))
 	FORCEINLINE bool IsVisible() const { return bIsVisible; }
+
+	UFUNCTION(BlueprintPure, Category = "Room", meta = (CompactNodeTitle = "Is Locked"))
 	FORCEINLINE bool IsLocked() const { return bIsLocked; }
-	FORCEINLINE void Lock(bool lock) { bIsLocked = lock; }
+
+	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category = "Room")
+	void Lock(bool lock);
+
 	FORCEINLINE uint64 GetRoomID() const { return Id; }
 
-private:
-	UPROPERTY()
-	URoomData* RoomData;
+	bool CreateCustomData(const TSubclassOf<URoomCustomData>& DataType);
 
-	UPROPERTY()
+	UFUNCTION(BlueprintCallable, Category = "Room", meta = (DisplayName = "Get Custom Data", ExpandBoolAsExecs = "ReturnValue", DeterminesOutputType = "DataType", DynamicOutputParam = "Data"))
+	bool GetCustomData_BP(TSubclassOf<URoomCustomData> DataType, URoomCustomData*& Data);
+
+	UFUNCTION(BlueprintCallable, Category = "Room", meta = (DisplayName = "Has Custom Data", ExpandBoolAsExecs = "ReturnValue", AutoCreateRefTerm = "DataType"))
+	bool HasCustomData_BP(const TSubclassOf<URoomCustomData>& DataType);
+
+	bool GetCustomData(const TSubclassOf<URoomCustomData>& DataType, URoomCustomData*& Data) const;
+	bool HasCustomData(const TSubclassOf<URoomCustomData>& DataType) const;
+
+private:
+	UPROPERTY(Replicated)
+	URoomData* RoomData {nullptr};
+
+	UPROPERTY(Replicated, Transient)
+	TArray<FCustomDataPair> CustomData;
+
+	UPROPERTY(Replicated)
 	TArray<FRoomConnection> Connections;
 
-	ADungeonGenerator* GeneratorOwner;
-	int64 Id;
-	bool bPlayerInside = false;
-	bool bIsVisible = true;
-	bool bIsLocked = false;
+	UPROPERTY(Replicated)
+	TWeakObjectPtr<ADungeonGenerator> GeneratorOwner {nullptr};
+
+	UPROPERTY(Replicated)
+	int64 Id {-1};
+
+	bool bPlayerInside {false};
+	bool bIsVisible {true};
+
+	UPROPERTY(ReplicatedUsing = OnRep_IsLocked)
+	bool bIsLocked {false};
+
+	UFUNCTION() // Needed macro for replication to work
+	void OnRep_IsLocked();
 
 	UFUNCTION() // needed macro for binding to delegate
 	void OnInstanceLoaded();
 
+	const FCustomDataPair* GetDataPair(const TSubclassOf<URoomCustomData>& DataType) const;
+
+protected:
+	// UReplicableObject interface
+	virtual bool ReplicateSubobjects(UActorChannel* Channel, FOutBunch* Bunch, FReplicationFlags* RepFlags) override;
+
 public:
 	void Init(URoomData* RoomData, ADungeonGenerator* Generator, int32 RoomId);
 
-	bool IsConnected(int Index);
+	bool IsConnected(int Index) const;
 	void SetConnection(int Index, URoom* Room, int OtherDoorIndex);
-	TWeakObjectPtr<URoom> GetConnection(int Index);
-	int GetFirstEmptyConnection();
+	TWeakObjectPtr<URoom> GetConnection(int Index) const;
+	int GetFirstEmptyConnection() const;
 
 	void Instantiate(UWorld* World);
 	void Destroy(UWorld* World);
@@ -105,49 +156,33 @@ public:
 
 	EDoorDirection GetDoorWorldOrientation(int DoorIndex);
 	FIntVector GetDoorWorldPosition(int DoorIndex);
-	int GetConnectionCount() { return Connections.Num(); }
+	int GetConnectionCount() const { return Connections.Num(); }
 	int GetDoorIndexAt(FIntVector WorldPos, EDoorDirection WorldRot);
 	bool IsDoorInstanced(int DoorIndex);
 	void SetDoorInstance(int DoorIndex, ADoor* Door);
 	int GetOtherDoorIndex(int DoorIndex);
 	void TryConnectToExistingDoors(TArray<URoom*>& RoomList);
 
-	FIntVector WorldToRoom(FIntVector WorldPos);
-	FIntVector RoomToWorld(FIntVector RoomPos);
-	EDoorDirection WorldToRoom(EDoorDirection WorldRot);
-	EDoorDirection RoomToWorld(EDoorDirection RoomRot);
+	FIntVector WorldToRoom(const FIntVector& WorldPos) const;
+	FIntVector RoomToWorld(const FIntVector& RoomPos) const;
+	EDoorDirection WorldToRoom(const EDoorDirection& WorldRot) const;
+	EDoorDirection RoomToWorld(const EDoorDirection& RoomRot) const;
+	FBoxMinAndMax WorldToRoom(const FBoxMinAndMax& WorldBox) const;
+	FBoxMinAndMax RoomToWorld(const FBoxMinAndMax& RoomBox) const;
 	void SetRotationFromDoor(int DoorIndex, EDoorDirection WorldRot);
 	void SetPositionFromDoor(int DoorIndex, FIntVector WorldPos);
 	void SetPositionAndRotationFromDoor(int DoorIndex, FIntVector WorldPos, EDoorDirection WorldRot);
 	bool IsOccupied(FIntVector Cell);
 
+	FTransform GetTransform() const;
 	FBoxCenterAndExtent GetBounds() const;
 	FBoxCenterAndExtent GetLocalBounds() const;
-	FTransform GetTransform() const;
+	FBoxMinAndMax GetIntBounds() const;
 
 	// AABB Overlapping
-	static bool Overlap(URoom& A, URoom& B);
-	static bool Overlap(URoom& Room, TArray<URoom*>& RoomList);
-	static EDoorDirection Add(EDoorDirection A, EDoorDirection B);
-	static EDoorDirection Sub(EDoorDirection A, EDoorDirection B);
-	static EDoorDirection Opposite(EDoorDirection O);
-	static FIntVector GetDirection(EDoorDirection O);
-	static FQuat GetRotation(EDoorDirection O);
-	static FIntVector Rotate(FIntVector Pos, EDoorDirection Rot);
-
-	static FVector GetRealDoorPosition(FIntVector DoorCell, EDoorDirection DoorRot, bool includeOffset = true);
+	static bool Overlap(const URoom& A, const URoom& B);
+	static bool Overlap(const URoom& Room, const TArray<URoom*>& RoomList);
 
 	static void Connect(URoom& RoomA, int DoorA, URoom& RoomB, int DoorB);
-	static URoom* GetRoomAt(FIntVector RoomCell, TArray<URoom*>& RoomList);
-
-	// Plugin Settings
-	static FVector Unit();
-	static FVector DoorSize();
-	static float DoorOffset();
-	static bool OcclusionCulling();
-	static bool UseLegacyOcclusion();
-	static uint32 OcclusionDistance();
-	static bool OccludeDynamicActors();
-	static bool DrawDebug();
-	static bool CanLoop();
+	static URoom* GetRoomAt(FIntVector RoomCell, const TArray<URoom*>& RoomList);
 };

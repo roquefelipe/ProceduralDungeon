@@ -1,7 +1,7 @@
 /*
  * MIT License
  *
- * Copyright (c) 2019-2021, 2023 Benoit Pelletier
+ * Copyright (c) 2023 Benoit Pelletier
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -22,42 +22,20 @@
  * SOFTWARE.
  */
 
-#include "RoomLockerBase.h"
-#include "RoomLevel.h"
-#include "Room.h"
-#include "RoomData.h"
-#include "GameFramework/GameState.h"
-#include "Engine/World.h"
+#pragma once
 
-void ADEPRECATED_RoomLockerBase::SetLocked(bool Locked, bool Self, TSubclassOf<URoomData> RoomType)
+#include "CoreMinimal.h"
+#include "Factories/Factory.h"
+#include "DoorTypeFactory.generated.h"
+
+UCLASS()
+class UDoorTypeFactory : public UFactory
 {
-	ARoomLevel* Script = GetRoomLevel();
-	if (nullptr != Script)
-	{
-		if (Self)
-		{
-			Script->Lock(Locked);
-		}
+	GENERATED_BODY()
 
-		URoom* Room = Script->Room;
-		if (nullptr != Room && nullptr != RoomType)
-		{
-			for (int i = 0; i < Room->GetConnectionCount(); i++)
-			{
-				if (nullptr != Room->GetConnection(i))
-				{
-					if (RoomType == Room->GetConnection(i)->GetRoomData()->GetClass())
-					{
-						Room->GetConnection(i)->Lock(Locked);
-					}
-				}
-			}
-		}
-	}
-}
+public:
+	UDoorTypeFactory();
 
-ARoomLevel * ADEPRECATED_RoomLockerBase::GetRoomLevel()
-{
-	return Cast<ARoomLevel>(GetLevel()->GetLevelScriptActor());
-}
-
+	virtual uint32 GetMenuCategories() const override;
+	virtual UObject* FactoryCreateNew(UClass* InClass, UObject* InParent, FName InName, EObjectFlags Flags, UObject* Context, FFeedbackContext* Warn);
+};

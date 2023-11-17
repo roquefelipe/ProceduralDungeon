@@ -1,7 +1,7 @@
 /*
  * MIT License
  *
- * Copyright (c) 2019-2021 Benoit Pelletier
+ * Copyright (c) 2019-2023 Benoit Pelletier
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -31,7 +31,7 @@
 UENUM()
 enum class EGenerationState : uint8
 {
-	None					UMETA(DisplayName = "None"),
+	Idle					UMETA(DisplayName = "Idle"),
 	Generation 				UMETA(DisplayName = "Generation"),
 	Load 					UMETA(DisplayName = "Load"),
 	Initialization 			UMETA(DisplayName = "Initialization"),
@@ -43,12 +43,30 @@ enum class EGenerationState : uint8
 UENUM(BlueprintType, meta = (DisplayName = "Door Direction"))
 enum class EDoorDirection : uint8
 {
-	North = 0 				UMETA(DisplayName = "North"), // rotation = 0 (world forward)
-	East = 255 				UMETA(DisplayName = "East"),  // rotation = -90 (world right)
-	West = 1 				UMETA(DisplayName = "West"),  // rotation = 90 (world left)
-	South = 2 				UMETA(DisplayName = "South"), // rotation = 180 (world backward)
-	NbDirection = 4 		UMETA(Hidden)
+	North		= 0 		UMETA(DisplayName = "North", ToolTip = "rotation = 0 | positive X (world forward)"),
+	East		= 1 		UMETA(DisplayName = "East", ToolTip = "rotation = 90 | positive Y (world right)"),
+	South		= 2 		UMETA(DisplayName = "South", ToolTip = "rotation = 180 | negative X (world backward)"),
+	West		= 3 		UMETA(DisplayName = "West", ToolTip = "rotation = 270 | negative Y (world left)"),
+	NbDirection	= 4 		UMETA(Hidden)
 };
+
+bool PROCEDURALDUNGEON_API operator!(const EDoorDirection& Direction);
+EDoorDirection PROCEDURALDUNGEON_API operator+(const EDoorDirection& A, const EDoorDirection& B);
+EDoorDirection PROCEDURALDUNGEON_API operator-(const EDoorDirection& A, const EDoorDirection& B);
+// TODO: Don't know how to export these...
+EDoorDirection& operator+=(EDoorDirection& A, const EDoorDirection& B);
+EDoorDirection& operator-=(EDoorDirection& A, const EDoorDirection& B);
+EDoorDirection& operator++(EDoorDirection& Direction);
+EDoorDirection& operator--(EDoorDirection& Direction);
+EDoorDirection PROCEDURALDUNGEON_API operator++(EDoorDirection& Direction, int);
+EDoorDirection PROCEDURALDUNGEON_API operator--(EDoorDirection& Direction, int);
+EDoorDirection PROCEDURALDUNGEON_API operator-(const EDoorDirection& Direction);
+EDoorDirection PROCEDURALDUNGEON_API operator~(const EDoorDirection& Direction);
+inline EDoorDirection PROCEDURALDUNGEON_API Opposite(const EDoorDirection& Direction) { return ~Direction; }
+FIntVector PROCEDURALDUNGEON_API ToIntVector(const EDoorDirection& Direction);
+FVector PROCEDURALDUNGEON_API ToVector(const EDoorDirection& Direction);
+FQuat PROCEDURALDUNGEON_API ToQuaternion(const EDoorDirection& Direction);
+FIntVector PROCEDURALDUNGEON_API Rotate(const FIntVector& Pos, const EDoorDirection& Rot);
 
 UENUM(BlueprintType, meta = (DisplayName = "Generation Type"))
 enum class EGenerationType : uint8
@@ -67,36 +85,50 @@ enum class ESeedType : uint8
 	NbType = 3 				UMETA(Hidden)
 };
 
-USTRUCT()
-struct FDoorDef
+USTRUCT(BlueprintType)
+struct PROCEDURALDUNGEON_API FDoorDef
 {
 	GENERATED_BODY()
 
 public:
-	UPROPERTY(EditAnywhere, Category = "DoorDef")
-	FIntVector Position;
-	UPROPERTY(EditAnywhere, Category = "DoorDef")
-	EDoorDirection Direction;
-
-#if WITH_EDITORONLY_DATA
-	// Don't take care of it, it is just used to put a name in the editor details panel.
-	UPROPERTY(Transient, VisibleInstanceOnly, Category = "DoorDef", meta = (DisplayName = "Name"))
-	FString EdName;
-#endif
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "DoorDef")
+	FIntVector Position {FIntVector::ZeroValue};
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "DoorDef")
+	EDoorDirection Direction {EDoorDirection::North};
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "DoorDef", meta = (DisplayThumbnail = false))
+	class UDoorType* Type {nullptr};
 
 public:
-	bool operator==(const FDoorDef& Other) const
-	{
-		return Position == Other.Position && Direction == Other.Direction;
-	}
+	bool operator==(const FDoorDef& Other) const;
 
-#if WITH_EDITOR
-	const FString& UpdateEdName()
-	{
-		FText DirectionName;
-		UEnum::GetDisplayValueAsText(Direction, DirectionName);
-		EdName = FString::Printf(TEXT("(%d,%d,%d) [%s]"), Position.X, Position.Y, Position.Z, *DirectionName.ToString());
-		return EdName;
-	}
-#endif
+	static bool AreCompatible(const FDoorDef& A, const FDoorDef& B);
+
+	FVector GetDoorSize() const;
+	FString ToString() const;
+
+	static FVector GetRealDoorPosition(FIntVector DoorCell, EDoorDirection DoorRot, bool includeOffset = true);
+	static void DrawDebug(const class UWorld* World, const FColor& Color, const FDoorDef& DoorDef, const FTransform& Transform = FTransform::Identity, bool includeOffset = false, bool isConnected = true);
+	static void DrawDebug(const class UWorld* World, const FColor& Color, const FVector& DoorSize, const FIntVector& DoorCell = FIntVector::ZeroValue, const EDoorDirection& DoorRot = EDoorDirection::NbDirection, const FTransform& Transform = FTransform::Identity, bool includeOffset = false, bool isConnected = true);
 };
+
+struct PROCEDURALDUNGEON_API FBoxMinAndMax
+{
+public:
+	FIntVector Min {0};
+	FIntVector Max {0};
+
+public:
+	FBoxMinAndMax() = default;
+	FBoxMinAndMax(const FIntVector& A, const FIntVector& B);
+
+	FIntVector GetSize() const;
+
+	static bool Overlap(const FBoxMinAndMax& A, const FBoxMinAndMax& B);
+
+	FBoxMinAndMax& operator+=(const FIntVector& X);
+	FBoxMinAndMax& operator-=(const FIntVector& X);
+	FBoxMinAndMax operator+(const FIntVector& X) const;
+	FBoxMinAndMax operator-(const FIntVector& X) const;
+};
+
+FBoxMinAndMax PROCEDURALDUNGEON_API Rotate(const FBoxMinAndMax& Box, const EDoorDirection& Rot);

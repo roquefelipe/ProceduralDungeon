@@ -30,6 +30,7 @@
 #include "Door.generated.h"
 
 class URoom;
+class UDoorType;
 
 UCLASS(Blueprintable, ClassGroup = "Procedural Dungeon")
 class PROCEDURALDUNGEON_API ADoor : public AActor
@@ -40,7 +41,6 @@ public:
 	ADoor();
 
 public:
-	virtual void BeginPlay() override;
 	virtual void Tick(float DeltaTime) override;
 	virtual bool ShouldTickIfViewportsOnly() const override { return true; }
 
@@ -52,17 +52,13 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Door", meta = (CompactNodeTitle = "Is Open"))
 	FORCEINLINE bool IsOpen() { return bIsOpen; }
 
-	// TODO: In next major release, replace OpenDoor() and CloseDoor() with a unique function OpenDoor(bool)
-	UFUNCTION(BlueprintCallable, Category = "Door", meta = (DeprecatedFunction, DeprecationMessage="Use Open(true) instead"))
-	void OpenDoor() { bShouldBeOpen = true; }
-	UFUNCTION(BlueprintCallable, Category = "Door", meta = (DeprecatedFunction, DeprecationMessage="Use Open(false) instead"))
-	void CloseDoor() { bShouldBeOpen = false; }
-
-	UFUNCTION(BlueprintCallable, Category = "Door")
+	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category = "Door")
 	void Open(bool open) { bShouldBeOpen = open; }
 
-	UFUNCTION(BlueprintCallable, Category = "Door")
+	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category = "Door")
 	void Lock(bool lock) { bShouldBeLocked = lock; }
+
+	const UDoorType* GetDoorType() const { return Type; }
 
 protected:
 	UFUNCTION()
@@ -86,39 +82,27 @@ protected:
 	void OnDoorClose_BP();
 
 protected:
-	bool bLocked = false;
-	bool bIsOpen = false;
+	bool bLocked {false};
+	bool bIsOpen {false};
 
 	UPROPERTY(Replicated)
-	bool bShouldBeLocked = false;
+	bool bShouldBeLocked {false};
 
 	UPROPERTY(Replicated)
-	bool bShouldBeOpen = false;
+	bool bShouldBeOpen {false};
 
 	// The two connected rooms to this door
-	UPROPERTY()
-	URoom* RoomA;
-	UPROPERTY()
-	URoom* RoomB;
+	UPROPERTY(BlueprintReadOnly, Replicated, Category = "Door")
+	URoom* RoomA {nullptr};
+	UPROPERTY(BlueprintReadOnly, Replicated, Category = "Door")
+	URoom* RoomB {nullptr};
 
-	UPROPERTY(ReplicatedUsing=OnRep_IndexRoomA)
-	int IndexRoomA;
-	UPROPERTY(ReplicatedUsing=OnRep_IndexRoomB)
-	int IndexRoomB;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Door", meta = (DisplayName = "Always Visible"))
+	bool bAlwaysVisible {false};
 
-	UPROPERTY(EditAnywhere, Category = "Door", meta = (DisplayName = "Always Visible"))
-	bool bAlwaysVisible = false;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Door", meta = (DisplayName = "Always Unlocked"))
+	bool bAlwaysUnlocked {false};
 
-	UPROPERTY(EditAnywhere, Category = "Door", meta = (DisplayName = "Always Unlocked"))
-	bool bAlwaysUnlocked = false;
-
-private:
-	UFUNCTION() // Needed macro for replication to work
-	void OnRep_IndexRoomA();
-
-	UFUNCTION() // Needed macro for replication to work
-	void OnRep_IndexRoomB();
-
-public:
-	static void DrawDebug(UWorld* World, FIntVector DoorCell = FIntVector::ZeroValue, EDoorDirection DoorRot = EDoorDirection::NbDirection, FTransform Transform = FTransform::Identity, bool includeOffset = false, bool isConnected = true, bool isValid = true);
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Door", meta = (DisplayName = "Door Type"))
+	UDoorType* Type;
 };

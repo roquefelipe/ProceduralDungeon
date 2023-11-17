@@ -1,7 +1,7 @@
 /*
  * MIT License
  *
- * Copyright (c) 2019-2021, 2023 Benoit Pelletier
+ * Copyright (c) 2023 Benoit Pelletier
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -25,22 +25,14 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "GameFramework/Actor.h"
-#include "ProceduralDungeonTypes.h"
-#include "RoomLockerBase.generated.h"
 
-class URoomData;
-class ARoomLevel;
+DECLARE_LOG_CATEGORY_EXTERN(LogProceduralDungeonEditor, Verbose, All);
 
-UCLASS(Deprecated, meta=(DeprecationMessage="Replace this by your own actor, using the SetLocked() method from URoom or URoomLevel"))
-class PROCEDURALDUNGEON_API ADEPRECATED_RoomLockerBase : public AActor
-{
-	GENERATED_BODY()
-	
-public:
-	// Set the room where this actor is locked or not (with self parameter) and the neighbor rooms of RoomType.
-	void SetLocked(bool Locked, bool Self = true, TSubclassOf<URoomData> RoomType = nullptr);
+#define DungeonEd_LogInfo(Format, ...)\
+	UE_LOG(LogProceduralDungeonEditor, Log, TEXT(Format), ##__VA_ARGS__)
 
-protected:
-	ARoomLevel* GetRoomLevel();
-};
+#define DungeonEd_LogWarning(Format, ...)\
+	UE_LOG(LogProceduralDungeonEditor, Warning, TEXT(Format), ##__VA_ARGS__)
+
+#define DungeonEd_LogError(Format, ...)\
+	UE_LOG(LogProceduralDungeonEditor, Error, TEXT(Format), ##__VA_ARGS__)
